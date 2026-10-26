@@ -1,0 +1,5 @@
+name: "astrbot_plugin_image_files_api"
+display_name: "图片 Files API (image_files_api)"
+desc: "把发给模型的图片从 base64 改成 Files API 的 file_id，请求体不再塞整张图；按内容哈希缓存 file_id，GIF 放行，出错退回原样。"
+version: "0.4.0"
+author: "koko"

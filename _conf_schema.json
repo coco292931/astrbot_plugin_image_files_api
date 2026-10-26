@@ -1,0 +1,44 @@
+{
+    "enable": {
+        "description": "总开关",
+        "hint": "关掉后图片仍按原来的 base64 走。",
+        "type": "bool",
+        "default": true
+    },
+    "allowed_api_base": {
+        "description": "生效的接口地址关键字",
+        "hint": "provider 的 api_base 含这个串才动手。",
+        "type": "string",
+        "default": "api.deepseek.com"
+    },
+    "upload_purpose": {
+        "description": "上传时填的 purpose",
+        "hint": "DeepSeek 只收 user_data。",
+        "type": "string",
+        "default": "user_data"
+    },
+    "ttl_seconds": {
+        "description": "服务端文件有效期（秒）",
+        "hint": "3600 到 2592000，默认 30 天；本地缓存同步按这个时间过期。",
+        "type": "int",
+        "default": 2592000
+    },
+    "cache_db": {
+        "description": "file_id 缓存库路径",
+        "hint": "sqlite 文件，按图片内容哈希复用 file_id。",
+        "type": "string",
+        "default": "/AstrBot/data/koko/data/image_files_api/cache.db"
+    },
+    "skip_extensions": {
+        "description": "跳过的图片后缀",
+        "hint": "逗号分隔，默认 .gif，按文件头也会认出 GIF。",
+        "type": "string",
+        "default": ".gif"
+    },
+    "local_expire_buffer_seconds": {
+        "description": "本地提前多少秒过期",
+        "hint": "比服务端早一点作废，默认 86400（一天），省得拿刚过期的号去请求。",
+        "type": "int",
+        "default": 86400
+    }
+}
