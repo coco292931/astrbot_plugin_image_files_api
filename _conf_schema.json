@@ -27,7 +27,7 @@
         "description": "file_id 缓存库路径",
         "hint": "sqlite 文件，按图片内容哈希复用 file_id。",
         "type": "string",
-        "default": "/AstrBot/data/koko/data/image_files_api/cache.db"
+        "default": "${plugin_data}/cache.db"
     },
     "skip_extensions": {
         "description": "跳过的图片后缀",

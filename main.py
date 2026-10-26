@@ -23,6 +23,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
+from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 try:
     from astrbot.core.agent.message import ContentPart
@@ -37,7 +38,8 @@ try:
 except Exception:  # pragma: no cover - 老版本没有 ContentPart 时退化
     _HAS_FILE_PART = False
 
-DEFAULT_DB = "/AstrBot/data/koko/data/image_files_api/cache.db"
+PLUGIN_NAME = "astrbot_plugin_image_files_api"
+DEFAULT_DB = os.path.join(get_astrbot_plugin_data_path(), PLUGIN_NAME, "cache.db")
 LOG_PATH = "/AstrBot/data/koko/logs/image_files_api.log"
 TAG = "[image_files_api]"
 
