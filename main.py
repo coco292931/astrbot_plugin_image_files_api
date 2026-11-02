@@ -63,7 +63,8 @@ def _trace(payload: dict) -> None:
 
 class FileIdCache:
     def __init__(self, db_path: str):
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        db_path = (db_path or "").strip() or DEFAULT_DB
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS file_ids ("
@@ -131,7 +132,7 @@ class ImageFilesApiPlugin(Star):
     @property
     def cache(self) -> FileIdCache:
         if self._cache is None:
-            self._cache = FileIdCache(self._cfg("cache_db", DEFAULT_DB))
+            self._cache = FileIdCache(self._cfg("cache_db", DEFAULT_DB) or DEFAULT_DB)
         return self._cache
 
     def _is_skipped(self, path: str) -> bool:
