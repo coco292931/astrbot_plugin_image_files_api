@@ -45,10 +45,18 @@ Files API 走的是另一条路：图片先上传换一个 `file-api-xxx` 编号
 | `upload_purpose` | 上传用途 | user_data |
 | `ttl_seconds` | 服务端有效期 | 2592000 |
 | `local_expire_buffer_seconds` | 本地提前作废的秒数 | 86400 |
-| `cache_db` | 缓存库路径 | /AstrBot/data/koko/data/image_files_api/cache.db |
+| `cache_db` | 缓存库路径，留空用插件数据目录下的 `cache.db` | （空） |
 | `skip_extensions` | 跳过的后缀 | .gif |
 
 ## 注意
 
 - 只对配置里那个 api_base 生效，换别家 provider 请自行确认是否支持 `file` 块。
 - DeepSeek 单用户配额是 25 GiB / 10000 个文件，记得让时效兜着。
+- `cache_db` 支持留空。AstrBot **不支持** `${plugin_data}` 之类的 schema 占位符，
+  填模板串会被识别并回退到默认路径，不会按字面量建目录。
+
+## 测试
+
+```bash
+python test_main.py -v
+```

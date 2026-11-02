@@ -25,9 +25,9 @@
     },
     "cache_db": {
         "description": "file_id 缓存库路径",
-        "hint": "sqlite 文件，按图片内容哈希复用 file_id。",
+        "hint": "留空使用插件数据目录下的 cache.db。AstrBot 不支持 ${...} 之类占位符，填写模板串会被自动忽略。",
         "type": "string",
-        "default": "${plugin_data}/cache.db"
+        "default": ""
     },
     "skip_extensions": {
         "description": "跳过的图片后缀",
@@ -40,5 +40,11 @@
         "hint": "比服务端早一点作废，默认 86400（一天），省得拿刚过期的号去请求。",
         "type": "int",
         "default": 86400
+    },
+    "no_save": {
+        "description": "file 块不落库",
+        "hint": "打开时给 file 块带 _no_save，历史记录里不会残留 file_id。",
+        "type": "bool",
+        "default": true
     }
 }

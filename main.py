@@ -40,8 +40,47 @@ except Exception:  # pragma: no cover - 老版本没有 ContentPart 时退化
 
 PLUGIN_NAME = "astrbot_plugin_image_files_api"
 DEFAULT_DB = os.path.join(get_astrbot_plugin_data_path(), PLUGIN_NAME, "cache.db")
-LOG_PATH = "/AstrBot/data/koko/logs/image_files_api.log"
+LOG_PATH = os.path.join(
+    get_astrbot_plugin_data_path(), PLUGIN_NAME, "image_files_api.log"
+)
 TAG = "[image_files_api]"
+
+_PLACEHOLDER_MARKS = ("${", "%(", "{{")
+"""AstrBot 不支持 schema 占位符，未替换的模板串必须识别出来并回退默认。"""
+
+_ACTIVE: dict[str, Any] = {"plugin": None}
+"""当前生效的插件实例；补丁通过它取配置与 client，热重载后自动指向新实例。"""
+
+
+def _resolve_db_path(raw: Any) -> str:
+    """把配置里的缓存库路径规范化。
+
+    AstrBot 的 ``_config_schema_to_default_config`` 只是原样拷贝 schema 的
+    default，**不做任何变量替换**。因此像 ``${plugin_data}/cache.db`` 这样的
+    模板串会被原样拿到，直接使用会在工作目录下建出名叫 ``${plugin_data}``
+    的目录。这里统一识别未替换的占位符与空白值，回退到 ``DEFAULT_DB``。
+
+    Args:
+        raw: 配置里的原始值。
+
+    Returns:
+        可直接交给 ``sqlite3.connect`` 的路径。
+    """
+    text = str(raw or "").strip()
+    if not text or any(mark in text for mark in _PLACEHOLDER_MARKS):
+        return DEFAULT_DB
+    return text
+
+
+def _cfg_int(value: Any, default: int, *, minimum: int | None = None) -> int:
+    """安全地把配置值转成 int，失败或越界时回退默认。"""
+    try:
+        num = int(value)
+    except Exception:
+        return default
+    if minimum is not None and num < minimum:
+        return default
+    return num
 
 
 def _sha1_of(path: str) -> str | None:
@@ -63,9 +102,13 @@ def _trace(payload: dict) -> None:
 
 class FileIdCache:
     def __init__(self, db_path: str):
-        db_path = (db_path or "").strip() or DEFAULT_DB
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        # 空值/占位符/无目录部分都必须兜底：os.path.dirname("") 是 ""，而
+        # os.makedirs("") 会抛 FileNotFoundError: [Errno 2] ... ''。
+        self.path = _resolve_db_path(db_path)
+        parent = os.path.dirname(self.path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS file_ids ("
             "digest TEXT PRIMARY KEY, file_id TEXT NOT NULL, size INTEGER, "
@@ -132,7 +175,7 @@ class ImageFilesApiPlugin(Star):
     @property
     def cache(self) -> FileIdCache:
         if self._cache is None:
-            self._cache = FileIdCache(self._cfg("cache_db", DEFAULT_DB) or DEFAULT_DB)
+            self._cache = FileIdCache(_resolve_db_path(self._cfg("cache_db", "")))
         return self._cache
 
     def _is_skipped(self, path: str) -> bool:
@@ -154,10 +197,8 @@ class ImageFilesApiPlugin(Star):
     async def _upload(self, path: str) -> str | None:
         if self._client is None:
             return None
-        try:
-            ttl = int(self._cfg("ttl_seconds", 2592000))
-        except Exception:
-            ttl = 2592000
+        self._last_expires = None
+        ttl = _cfg_int(self._cfg("ttl_seconds", 2592000), 2592000, minimum=0)
         try:
             with open(path, "rb") as fh:
                 resp = await self._client.files.create(
@@ -169,7 +210,13 @@ class ImageFilesApiPlugin(Star):
                 )
             file_id = getattr(resp, "id", None)
             if file_id and ttl:
-                buffer_sec = int(self._cfg("local_expire_buffer_seconds", 86400))
+                # 配置值非法时不能把"上传已经成功"变成整体失败，
+                # 这里只影响本地过期时间，回退默认即可。
+                buffer_sec = _cfg_int(
+                    self._cfg("local_expire_buffer_seconds", 86400),
+                    86400,
+                    minimum=0,
+                )
                 self._last_expires = (
                     datetime.now(timezone.utc)
                     + timedelta(seconds=max(60, ttl - buffer_sec))
@@ -197,29 +244,38 @@ class ImageFilesApiPlugin(Star):
         return file_id
 
     def _install_patch(self) -> None:
+        # 热重载时旧实例的补丁会留在 ProviderRequest 上，闭包仍指向旧实例
+        # （配置、client 都是旧的）。这里统一走模块级引用，重载后自动指向
+        # 新实例。
+        _ACTIVE["plugin"] = self
         if getattr(ProviderRequest, "_ifa_patched", False):
             return
         original = ProviderRequest.assemble_context
-        plugin = self
+        ProviderRequest._ifa_original = original
 
-        async def patched(self):
+        async def patched(req_self):
+            plugin = _ACTIVE["plugin"]
+            if plugin is None:
+                return await original(req_self)
             paths = [
                 str(u)
-                for u in (getattr(self, "image_urls", None) or [])
+                for u in (getattr(req_self, "image_urls", None) or [])
                 if str(u).startswith("/") and not plugin._is_skipped(str(u))
             ]
             if not paths or plugin._client is None:
-                return await original(self)
+                return await original(req_self)
 
             file_ids: list[str] = []
             for path in paths:
                 file_id = await plugin._resolve_id(path)
                 if not file_id:
-                    return await original(self)
+                    return await original(req_self)
                 file_ids.append(file_id)
 
-            self.image_urls = [u for u in self.image_urls if str(u) not in paths]
-            result = await original(self)
+            req_self.image_urls = [
+                u for u in req_self.image_urls if str(u) not in paths
+            ]
+            result = await original(req_self)
             content = result.get("content") if isinstance(result, dict) else None
             if isinstance(content, list):
                 for fid in file_ids:
@@ -233,6 +289,27 @@ class ImageFilesApiPlugin(Star):
         ProviderRequest.assemble_context = patched
         ProviderRequest._ifa_patched = True
         _trace({"patched": "ProviderRequest.assemble_context"})
+
+    async def terminate(self) -> None:
+        """插件卸载时还原 ``ProviderRequest.assemble_context``。
+
+        补丁是类级的，不还原会一直留到进程结束；若期间插件被卸载，
+        闭包里的实例仍在，后续请求会走一套已失效的配置与 client。
+        """
+        # 只有当前实例仍是生效实例时才清空，避免"先加载新实例、后卸载旧实例"
+        # 的顺序把新实例的补丁关掉。
+        if _ACTIVE["plugin"] is self:
+            _ACTIVE["plugin"] = None
+        if not getattr(ProviderRequest, "_ifa_patched", False):
+            return
+        original = getattr(ProviderRequest, "_ifa_original", None)
+        if original is None:
+            return
+        ProviderRequest.assemble_context = original
+        del ProviderRequest._ifa_patched
+        if hasattr(ProviderRequest, "_ifa_original"):
+            del ProviderRequest._ifa_original
+        _trace({"unpatched": "ProviderRequest.assemble_context"})
 
     @filter.on_llm_request()
     async def enable_files_api(self, event: AstrMessageEvent, req: ProviderRequest):
